@@ -1,0 +1,1655 @@
+[
+  {
+    "updatedAt": "2026-11-20T04:20:21.687Z",
+    "createdAt": "2026-10-17T15:56:32.640Z",
+    "id": "X5It9YPSIVFQVzOD",
+    "name": "AYRA - Pastilla (aviso + check + CSV)",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 12
+              }
+            ]
+          }
+        },
+        "id": "74fcf780-10e1-41ba-91cc-bcef15638ed5",
+        "name": "Todos los dias 12:00 AR",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "returnAll": true,
+          "orderBy": true,
+          "orderByColumn": "fecha",
+          "orderByDirection": "ASC"
+        },
+        "id": "b96fefe5-8b47-442e-bf8d-d82bcf8fd8ba",
+        "name": "Leer tabla avisos",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          224,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Aviso diario: se manda todos los dias a las 12:00 (misma hora).\n// El limite arranca en el ultimo numero del registro anterior: no se reinicia el historial.\nconst TZ = 'America/Argentina/Buenos_Aires';\nconst NUMERO_BASE = 16;  // ultimo aviso del registro anterior (2026-11-18, numero 16)\nconst TOTAL_NUEVOS = 90; // avisos nuevos que se pueden mandar a partir de NUMERO_BASE\nconst LIMITE = NUMERO_BASE + TOTAL_NUEVOS;\n\nconst esFecha = (s) => /^\\d{4}-\\d{2}-\\d{2}$/.test(String(s));\nconst label = (s) => s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4);\n\nconst fmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });\nconst p = {};\nfor (const x of fmt.formatToParts(new Date())) { p[x.type] = x.value; }\nconst hoy = p.year + '-' + p.month + '-' + p.day;\n\nconst filas = $input.all().map((i) => i.json).filter((r) => r && esFecha(r.fecha));\nconst numeros = filas.map((r) => Number(r.numero) || 0);\nconst ultimoNumero = numeros.length > 0 ? Math.max(...numeros) : 0;\nconst base = Math.max(NUMERO_BASE, ultimoNumero);\nconst proximo = base + 1;\nconst yaHayAvisoHoy = filas.some((r) => String(r.fecha) === hoy);\n\nlet tipo = 'nada';\nlet motivo = '';\nif (yaHayAvisoHoy) {\n  motivo = 'el aviso de hoy ya se mando';\n} else if (proximo > LIMITE) {\n  motivo = 'ciclo terminado (limite ' + LIMITE + ')';\n} else {\n  tipo = 'aviso';\n  motivo = 'toca el aviso del dia';\n}\n\nreturn [{ json: {\n  tipo: tipo,\n  motivo: motivo,\n  hoy: hoy,\n  fecha: hoy,\n  fechaAviso: hoy,\n  fechaAvisoLabel: label(hoy),\n  numeroAviso: tipo === 'aviso' ? proximo : 0,\n  indice: tipo === 'aviso' ? proximo - 1 : 0,\n  limite: LIMITE,\n  ultimoNumero: ultimoNumero,\n  avisosEnviados: filas.length\n} }];"
+        },
+        "id": "1b4f3b67-a77a-41ef-be6e-891062547f37",
+        "name": "Decidir que toca hoy",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.telegram.org/bot8669529962:AAG-xNtcH9APh0TVN3uK9IONP9ni1AKuy5E/sendMessage",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": {
+            "chat_id": "6189252343",
+            "parse_mode": "HTML",
+            "text": "=💊 <b>Es hora de tu pastilla</b>\n\nAviso {{ $json.numeroAviso }} · {{ $json.fechaAvisoLabel }}\n\nCuando la hayas tomado, toca el boton de abajo.",
+            "reply_markup": {
+              "inline_keyboard": [
+                [
+                  {
+                    "text": "✅ Ya la tome",
+                    "url": "=http://g7-server.tail1dbbc4.ts.net:5678/webhook/ayra-pill-check?f={{ $json.fechaAviso }}&s=a7f3c9e2b1d8465f0a3c"
+                  }
+                ]
+              ]
+            }
+          },
+          "options": {
+            "timeout": 15000
+          }
+        },
+        "id": "da682100-f3f1-42de-8641-428ad21ea646",
+        "name": "Enviar aviso por Telegram",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          896,
+          0
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 2000
+      },
+      {
+        "parameters": {
+          "operation": "upsert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "keyValue": "={{ $('Decidir que toca hoy').first().json.hoy }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "matchingColumns": [
+              "fecha"
+            ],
+            "value": {
+              "fecha": "={{ $('Decidir que toca hoy').first().json.hoy }}",
+              "indice": "={{ $('Decidir que toca hoy').first().json.indice }}",
+              "message_id": "={{ $json.result.message_id }}",
+              "estado": "pendiente",
+              "confirmado_at": "",
+              "aviso_final": false,
+              "borrado": false,
+              "aviso_final_message_id": 0,
+              "numero": "={{ $('Decidir que toca hoy').first().json.numeroAviso }}"
+            }
+          },
+          "options": {}
+        },
+        "id": "8d29cae3-329e-44a0-ac39-683c438bfb97",
+        "name": "Guardar aviso pendiente",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1120,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.telegram.org/bot8669529962:AAG-xNtcH9APh0TVN3uK9IONP9ni1AKuy5E/sendMessage",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": {
+            "chat_id": "6189252343",
+            "parse_mode": "HTML",
+            "text": "=⚠️ <b>Te olvidaste de tomar la pastilla</b>\n\nAviso {{ $json.numeroAviso }} · {{ $json.fechaLabel }} sigue sin confirmar.\n\nCuando la hayas tomado, toca el boton de abajo. Este mensaje se borra cuando confirmas (y si no, manana con la limpieza).",
+            "reply_markup": {
+              "inline_keyboard": [
+                [
+                  {
+                    "text": "✅ Ya la tome",
+                    "url": "=http://g7-server.tail1dbbc4.ts.net:5678/webhook/ayra-pill-check?f={{ $json.fecha }}&s=a7f3c9e2b1d8465f0a3c"
+                  }
+                ]
+              ]
+            }
+          },
+          "options": {
+            "timeout": 15000
+          }
+        },
+        "id": "f0e24094-0b94-4ba7-af5c-f82b59a6e0db",
+        "name": "Enviar aviso final",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          896,
+          -320
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 2000
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "condition": "eq",
+                "keyValue": "={{ $('Decidir si mando el olvido').first().json.fecha }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "matchingColumns": [
+              "fecha"
+            ],
+            "value": {
+              "aviso_final": true,
+              "aviso_final_message_id": "={{ $json.result.message_id }}"
+            }
+          },
+          "options": {}
+        },
+        "id": "f76e55d9-e528-4b25-a796-a72d7e17f7b2",
+        "name": "Marcar aviso final enviado",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1120,
+          -320
+        ]
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 11,
+                "triggerAtMinute": 55
+              }
+            ]
+          }
+        },
+        "id": "36c5f844-02ac-403a-b6c4-62b3795a9bad",
+        "name": "Todos los dias 11:55 AR",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          416
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "returnAll": true
+        },
+        "id": "53506969-7063-48b3-a0d3-671b316b2da3",
+        "name": "Leer tabla para limpieza",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          608
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Limpieza: unos minutos antes del aviso nuevo, borra del chat los mensajes de dias anteriores.\n// Borra el aviso (message_id) y TAMBIEN su recordatorio de olvido (aviso_final_message_id):\n// en el chat tiene que quedar solo el dia de hoy (uno por dia, sin acumularse).\n// Telegram solo permite borrar mensajes de menos de 48 h: se borran los de 1 o 2 dias.\nconst TZ = 'America/Argentina/Buenos_Aires';\nconst MAX_EDAD_DIAS = 2;\n\n// Chequeo de fecha sin expresiones regulares (evita problemas de escape).\nconst esDigito = (c) => c >= '0' && c <= '9';\nconst esFecha = (s) => {\n  const t = String(s);\n  if (t.length !== 10 || t[4] !== '-' || t[7] !== '-') return false;\n  for (let i = 0; i < 10; i = i + 1) {\n    if (i === 4 || i === 7) continue;\n    if (!esDigito(t[i])) return false;\n  }\n  return true;\n};\nconst aUTC = (s) => Date.UTC(Number(String(s).slice(0, 4)), Number(String(s).slice(5, 7)) - 1, Number(String(s).slice(8, 10)));\nconst dias = (a, b) => Math.round((aUTC(a) - aUTC(b)) / 86400000);\nconst esTrue = (v) => v === true || ['true', '1'].includes(String(v).toLowerCase());\n\nconst fmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });\nconst p = {};\nfor (const x of fmt.formatToParts(new Date())) { p[x.type] = x.value; }\nconst hoy = p.year + '-' + p.month + '-' + p.day;\n\nconst salida = [];\nfor (const r of $input.all().map((i) => i.json)) {\n  const fecha = String(r.fecha || '');\n  if (!esFecha(fecha)) continue;\n  const edad = dias(hoy, fecha);\n  if (edad < 1 || edad > MAX_EDAD_DIAS) continue;\n\n  const avisoId = Number(r.message_id) || 0;\n  if (avisoId > 0 && !esTrue(r.borrado)) {\n    salida.push({ json: { fecha: fecha, message_id: avisoId, campo: 'borrado' } });\n  }\n\n  const olvidoId = Number(r.aviso_final_message_id) || 0;\n  if (olvidoId > 0 && !esTrue(r.aviso_final_borrado)) {\n    salida.push({ json: { fecha: fecha, message_id: olvidoId, campo: 'aviso_final' } });\n  }\n}\nreturn salida;"
+        },
+        "id": "aa5dc5a8-297f-42bc-96a3-c4889f721dc2",
+        "name": "Elegir mensajes vencidos",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          464,
+          608
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.telegram.org/bot8669529962:AAG-xNtcH9APh0TVN3uK9IONP9ni1AKuy5E/deleteMessage",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": {
+            "chat_id": "6189252343",
+            "message_id": "={{ $json.message_id }}"
+          },
+          "options": {
+            "timeout": 15000
+          }
+        },
+        "id": "576dc50a-440e-4027-9289-351c96ea74ce",
+        "name": "Borrar mensaje en Telegram",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          688,
+          608
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.ok }}",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                },
+                "rightValue": ""
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "48ba40c9-38ee-4f76-ae19-d67f0a61f468",
+        "name": "Se borro de verdad?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          912,
+          608
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "keyValue": "={{ $('Elegir mensajes vencidos').item.json.fecha }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "matchingColumns": [
+              "fecha"
+            ],
+            "value": {
+              "borrado": true
+            }
+          },
+          "options": {}
+        },
+        "id": "5503d35b-1909-4c1c-8607-11719541b84b",
+        "name": "Marcar aviso borrado",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1360,
+          480
+        ]
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 23,
+                "triggerAtMinute": 55
+              }
+            ]
+          }
+        },
+        "id": "32b1ae21-f8b7-41f3-8a00-d7d1733fed02",
+        "name": "Todos los dias 23:55 AR",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          896
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "returnAll": true,
+          "orderBy": true,
+          "orderByColumn": "fecha",
+          "orderByDirection": "ASC"
+        },
+        "id": "86bb53b5-cb01-46b7-bd19-f7bd386add60",
+        "name": "Leer seguimiento completo",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          272,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "path": "ayra-pill-csv",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "8c469338-961a-4694-93fa-e2fda1687244",
+        "name": "Ver seguimiento por link",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          1056
+        ],
+        "webhookId": "2141cd46-6300-4543-b6ee-704cc29e5c6e"
+      },
+      {
+        "parameters": {
+          "jsCode": "const esFecha = (s) => /^\\d{4}-\\d{2}-\\d{2}$/.test(String(s));\nconst aUTC = (s) => Date.UTC(Number(String(s).slice(0, 4)), Number(String(s).slice(5, 7)) - 1, Number(String(s).slice(8, 10)));\n\nconst filas = $input.all().map(i => i.json).filter(r => r && esFecha(r.fecha));\nfilas.sort((x, y) => aUTC(x.fecha) - aUTC(y.fecha));\n\nconst out = [];\nfor (let i = 0; i < filas.length; i = i + 1) {\n  const r = filas[i];\n  const numero = Number(r.numero) > 0 ? Number(r.numero) : (i + 1);\n  out.push({ json: {\n    fecha: String(r.fecha),\n    numero_aviso: numero,\n    estado: r.estado === 'confirmado' ? 'confirmado' : 'pendiente',\n    confirmado_at: String(r.confirmado_at || ''),\n    aviso_final_enviado: r.aviso_final === true ? 'si' : 'no',\n    mensaje_en_chat: String(r.borrado) === 'true' ? 'no' : 'si',\n    message_id: Number(r.message_id || 0),\n    aviso_final_message_id: Number(r.aviso_final_message_id || 0)\n  }});\n}\nreturn out;"
+        },
+        "id": "63aa7a96-c7f6-4ff1-a184-b228d3a44f4a",
+        "name": "Armar filas del CSV",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          656,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "delimiter": ",",
+            "fileName": "seguimiento-pastilla.csv",
+            "headerRow": true
+          }
+        },
+        "id": "53e5902a-6a4f-4aa5-9886-251d0a75732a",
+        "name": "Generar archivo CSV",
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          880,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "write",
+          "fileName": "/aviso-pastilla/seguimiento-pastilla.csv",
+          "options": {}
+        },
+        "id": "aab7f0ca-e5bb-457a-b526-afd881e23a4e",
+        "name": "Guardar CSV en disco",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1.1,
+        "position": [
+          1104,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $('Ver seguimiento por link').isExecuted }}",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                },
+                "rightValue": true
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "45683106-45e4-4abb-9251-112df11b866f",
+        "name": "Pidieron el CSV por link?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1328,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "binary",
+          "options": {
+            "responseCode": 200,
+            "responseHeaders": {
+              "entries": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/csv; charset=utf-8"
+                }
+              ]
+            }
+          }
+        },
+        "id": "ad6d6a3b-fc07-4771-9cb4-e2835a3f7ed5",
+        "name": "Responder el CSV",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1552,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "path": "ayra-pill-check",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "65b75891-abf5-4e27-8265-09822a464a5a",
+        "name": "Boton: confirmacion recibida",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          1296
+        ],
+        "webhookId": "a94e11ea-e258-4219-9716-3ab3d0764dcd"
+      },
+      {
+        "parameters": {
+          "jsCode": "const SECRET = 'a7f3c9e2b1d8465f0a3c';\nconst q = $input.first().json.query || {};\nconst fecha = String(q.f || '');\nconst ok = String(q.s || '') === SECRET && fecha.length === 10;\nreturn [{ json: { ok, fecha } }];"
+        },
+        "id": "e17fed4e-27f6-4f35-8998-aaa143a5f0c6",
+        "name": "Validar link",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          256,
+          1584
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.ok }}",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "79031774-7f33-4a23-9a0b-898663301ef7",
+        "name": "Link valido?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          480,
+          1584
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "keyValue": "={{ $json.fecha }}"
+              }
+            ]
+          },
+          "limit": 1
+        },
+        "id": "60374e2b-01a8-4a90-bd55-f40100696be3",
+        "name": "Buscar aviso de esa fecha",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          704,
+          1488
+        ],
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.estado }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                },
+                "rightValue": "pendiente"
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "48e3562e-5578-4c8e-a9b8-2d1029ec0554",
+        "name": "Estaba pendiente?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          928,
+          1488
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "keyValue": "={{ $json.fecha }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "matchingColumns": [
+              "fecha"
+            ],
+            "value": {
+              "estado": "confirmado",
+              "confirmado_at": "={{ $now.toISO() }}"
+            }
+          },
+          "options": {}
+        },
+        "id": "b9ec83e4-302f-4012-b1dd-071405253864",
+        "name": "Marcar como confirmado",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1152,
+          1296
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.telegram.org/bot8669529962:AAG-xNtcH9APh0TVN3uK9IONP9ni1AKuy5E/editMessageText",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": {
+            "chat_id": "6189252343",
+            "message_id": "={{ $('Buscar aviso de esa fecha').first().json.message_id }}",
+            "parse_mode": "HTML",
+            "text": "=✅ <b>Confirmado</b> a las {{ $now.toFormat('HH:mm') }}\n\nAviso {{ $('Buscar aviso de esa fecha').first().json.numero }} · {{ $('Buscar aviso de esa fecha').first().json.fecha.split('-').reverse().join('/') }}",
+            "reply_markup": {
+              "inline_keyboard": []
+            }
+          },
+          "options": {
+            "timeout": 15000
+          }
+        },
+        "id": "eb5e71bc-5dff-4cb8-a253-c4cef486c83d",
+        "name": "Marcar mensaje como confirmado",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          1376,
+          1392
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body style=\"font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px\"><div style=\"font-size:48px\">✅</div><h2>Listo, quedo registrado</h2><p style=\"color:#666\">Ya podes cerrar esta pagina.</p></body></html>",
+          "options": {
+            "responseCode": 200,
+            "responseHeaders": {
+              "entries": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=utf-8"
+                }
+              ]
+            }
+          }
+        },
+        "id": "f0f15633-f355-4b17-8f00-6112fedd4c24",
+        "name": "Responder confirmado",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          2048,
+          1392
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body style=\"font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px\"><div style=\"font-size:48px\">☑️</div><h2>Ese aviso ya estaba registrado</h2><p style=\"color:#666\">No hace falta hacer nada.</p></body></html>",
+          "options": {
+            "responseCode": 200,
+            "responseHeaders": {
+              "entries": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=utf-8"
+                }
+              ]
+            }
+          }
+        },
+        "id": "fb18fc5a-ce34-4307-b40a-15ed788e67be",
+        "name": "Responder ya registrado",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1152,
+          1584
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body style=\"font-family:-apple-system,sans-serif;text-align:center;padding:48px 24px\"><div style=\"font-size:48px\">❌</div><h2>Link invalido</h2><p style=\"color:#666\">Este link no es valido.</p></body></html>",
+          "options": {
+            "responseCode": 200,
+            "responseHeaders": {
+              "entries": [
+                {
+                  "name": "Content-Type",
+                  "value": "text/html; charset=utf-8"
+                }
+              ]
+            }
+          }
+        },
+        "id": "76663d6a-1293-43fa-aea0-0e99466d70c5",
+        "name": "Responder link invalido",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          704,
+          1680
+        ]
+      },
+      {
+        "id": "3f1f6c0a-2873-4464-8a4f-72db65e928f7",
+        "name": "Toca aviso hoy?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          672,
+          96
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.tipo }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                },
+                "rightValue": "aviso"
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "7671a9f1-3a27-4a9d-b1d1-d42935ed03de",
+        "name": "Todos los dias 14:00 AR",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          -320
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "days",
+                "daysInterval": 1,
+                "triggerAtHour": 14,
+                "triggerAtMinute": 0
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "efffcb9b-71b5-4e75-a75c-733acfae27ec",
+        "name": "Leer tabla para el olvido",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          224,
+          -320
+        ],
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "returnAll": true
+        }
+      },
+      {
+        "id": "df67d828-8de7-45c7-bb61-206c14f04755",
+        "name": "Decidir si mando el olvido",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          -320
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "// Recordatorio: 2 horas despues del aviso de las 12:00 (14:00), si sigue sin confirmar.\n// Si la pastilla ya se confirmo antes de las 14:00, este nodo devuelve 'nada' y no se manda nada.\n// El mensaje lleva el mismo boton que el aviso y se borra cuando confirmas.\nconst TZ = 'America/Argentina/Buenos_Aires';\nconst HORAS_MINIMAS = 1.5; // normalmente son 2 h (12:00 -> 14:00); el margen cubre corridas demoradas\n\n// Chequeo de fecha sin expresiones regulares (evita problemas de escape).\nconst esFecha = (s) => {\n  const t = String(s);\n  if (t.length !== 10 || t[4] !== '-' || t[7] !== '-') return false;\n  for (let i = 0; i < 10; i = i + 1) {\n    if (i === 4 || i === 7) continue;\n    const c = t[i];\n    if (c < '0' || c > '9') return false;\n  }\n  return true;\n};\nconst label = (s) => s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4);\nconst aMs = (v) => { const t = new Date(String(v || '')).getTime(); return Number.isFinite(t) ? t : null; };\nconst esTrue = (v) => v === true || ['true', '1'].includes(String(v).toLowerCase());\n\nconst fmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });\nconst p = {};\nfor (const x of fmt.formatToParts(new Date())) { p[x.type] = x.value; }\nconst hoy = p.year + '-' + p.month + '-' + p.day;\n\nconst filas = $input.all().map((i) => i.json).filter((r) => r && esFecha(r.fecha));\nconst deHoy = filas.find((r) => String(r.fecha) === hoy);\n\nlet tipo = 'nada';\nlet motivo = '';\nlet horas = null;\nif (!deHoy) {\n  motivo = 'hoy no se mando aviso';\n} else if (String(deHoy.estado) !== 'pendiente') {\n  motivo = 'la pastilla ya estaba confirmada';\n} else if (esTrue(deHoy.aviso_final)) {\n  motivo = 'el recordatorio ya se mando';\n} else {\n  const enviado = aMs(deHoy.createdAt) || aMs(deHoy.updatedAt);\n  horas = enviado ? Math.round(((Date.now() - enviado) / 3600000) * 10) / 10 : 99;\n  if (horas >= HORAS_MINIMAS) { tipo = 'final'; motivo = 'pasaron ' + horas + ' h sin confirmar'; }\n  else { motivo = 'todavia no pasaron las horas minimas (' + horas + ' h)'; }\n}\n\nreturn [{ json: {\n  tipo: tipo,\n  motivo: motivo,\n  hoy: hoy,\n  fecha: hoy,\n  fechaLabel: label(hoy),\n  numeroAviso: deHoy ? (Number(deHoy.numero) || 0) : 0,\n  horasDesdeElAviso: horas\n} }];"
+        }
+      },
+      {
+        "id": "06033903-fffc-4cc5-a4b5-8740a79e0079",
+        "name": "Toca aviso final?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          672,
+          -320
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.tipo }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                },
+                "rightValue": "final"
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "8b476df6-f721-43b3-9f8a-4f0d3bee4627",
+        "name": "Es el aviso?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1136,
+          608
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $('Elegir mensajes vencidos').item.json.campo }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                },
+                "rightValue": "borrado"
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "36690c52-001c-42c5-b4de-c0b98591fc44",
+        "name": "Marcar olvido borrado",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1360,
+          736
+        ],
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "condition": "eq",
+                "keyValue": "={{ $('Elegir mensajes vencidos').item.json.fecha }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "matchingColumns": [
+              "fecha"
+            ],
+            "value": {
+              "aviso_final_borrado": true
+            }
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "0b85ba5a-4097-459b-83e1-47f24d76777d",
+        "name": "Hay recordatorio?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1600,
+          1584
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ Number($('Buscar aviso de esa fecha').first().json.aviso_final_message_id) }}",
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                },
+                "rightValue": 0
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "b18701f0-5ec8-45b8-834e-4283f618e5a8",
+        "name": "Borrar recordatorio en Telegram",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          1824,
+          1584
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.telegram.org/bot8669529962:AAG-xNtcH9APh0TVN3uK9IONP9ni1AKuy5E/deleteMessage",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": {
+            "chat_id": "6189252343",
+            "message_id": "={{ $('Buscar aviso de esa fecha').first().json.aviso_final_message_id }}"
+          },
+          "options": {
+            "timeout": 15000
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "938fb626-ecb6-457d-a9b9-306aca99fa2d",
+        "name": "Se borro el recordatorio?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2048,
+          1584
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.ok }}",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                },
+                "rightValue": ""
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "2661ba18-fab6-4767-94db-3838a71c3099",
+        "name": "Marcar recordatorio borrado",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          2272,
+          1584
+        ],
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "MIEQ3VahWrnR8fQo"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "fecha",
+                "condition": "eq",
+                "keyValue": "={{ $('Buscar aviso de esa fecha').first().json.fecha }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "matchingColumns": [
+              "fecha"
+            ],
+            "value": {
+              "aviso_final_borrado": true
+            }
+          },
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Todos los dias 12:00 AR": {
+        "main": [
+          [
+            {
+              "node": "Leer tabla avisos",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Leer tabla avisos": {
+        "main": [
+          [
+            {
+              "node": "Decidir que toca hoy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Enviar aviso por Telegram": {
+        "main": [
+          [
+            {
+              "node": "Guardar aviso pendiente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Enviar aviso final": {
+        "main": [
+          [
+            {
+              "node": "Marcar aviso final enviado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Todos los dias 11:55 AR": {
+        "main": [
+          [
+            {
+              "node": "Leer tabla para limpieza",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Leer tabla para limpieza": {
+        "main": [
+          [
+            {
+              "node": "Elegir mensajes vencidos",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Elegir mensajes vencidos": {
+        "main": [
+          [
+            {
+              "node": "Borrar mensaje en Telegram",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Borrar mensaje en Telegram": {
+        "main": [
+          [
+            {
+              "node": "Se borro de verdad?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Todos los dias 23:55 AR": {
+        "main": [
+          [
+            {
+              "node": "Leer seguimiento completo",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Leer seguimiento completo": {
+        "main": [
+          [
+            {
+              "node": "Armar filas del CSV",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ver seguimiento por link": {
+        "main": [
+          [
+            {
+              "node": "Leer seguimiento completo",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Armar filas del CSV": {
+        "main": [
+          [
+            {
+              "node": "Generar archivo CSV",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generar archivo CSV": {
+        "main": [
+          [
+            {
+              "node": "Guardar CSV en disco",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Guardar CSV en disco": {
+        "main": [
+          [
+            {
+              "node": "Pidieron el CSV por link?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pidieron el CSV por link?": {
+        "main": [
+          [
+            {
+              "node": "Responder el CSV",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Boton: confirmacion recibida": {
+        "main": [
+          [
+            {
+              "node": "Validar link",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validar link": {
+        "main": [
+          [
+            {
+              "node": "Link valido?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Link valido?": {
+        "main": [
+          [
+            {
+              "node": "Buscar aviso de esa fecha",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Responder link invalido",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Buscar aviso de esa fecha": {
+        "main": [
+          [
+            {
+              "node": "Estaba pendiente?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Estaba pendiente?": {
+        "main": [
+          [
+            {
+              "node": "Marcar como confirmado",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Marcar mensaje como confirmado",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Hay recordatorio?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Responder ya registrado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decidir que toca hoy": {
+        "main": [
+          [
+            {
+              "node": "Toca aviso hoy?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Toca aviso hoy?": {
+        "main": [
+          [
+            {
+              "node": "Enviar aviso por Telegram",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Leer tabla para el olvido": {
+        "main": [
+          [
+            {
+              "node": "Decidir si mando el olvido",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decidir si mando el olvido": {
+        "main": [
+          [
+            {
+              "node": "Toca aviso final?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Toca aviso final?": {
+        "main": [
+          [
+            {
+              "node": "Enviar aviso final",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Se borro de verdad?": {
+        "main": [
+          [
+            {
+              "node": "Es el aviso?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Es el aviso?": {
+        "main": [
+          [
+            {
+              "node": "Marcar aviso borrado",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Marcar olvido borrado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Todos los dias 14:00 AR": {
+        "main": [
+          [
+            {
+              "node": "Leer tabla para el olvido",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Hay recordatorio?": {
+        "main": [
+          [
+            {
+              "node": "Borrar recordatorio en Telegram",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "Marcar mensaje como confirmado": {
+        "main": [
+          [
+            {
+              "node": "Responder confirmado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Borrar recordatorio en Telegram": {
+        "main": [
+          [
+            {
+              "node": "Se borro el recordatorio?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Se borro el recordatorio?": {
+        "main": [
+          [
+            {
+              "node": "Marcar recordatorio borrado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "availableInMCP": true,
+      "timezone": "America/Argentina/Buenos_Aires",
+      "executionTimeout": 120,
+      "binaryMode": "separate"
+    },
+    "staticData": {
+      "node:Todos los dias 12:00 AR": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Todos los dias 11:55 AR": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Todos los dias 23:55 AR": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Todos los dias 16:00 AR": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Todos los dias 14:00 AR": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      }
+    },
+    "meta": {
+      "aiBuilderAssisted": true,
+      "builderVariant": "mcp"
+    },
+    "nodeGroups": [
+      {
+        "id": "e02fbf12-fc2f-4fd7-b2fe-9c34423cb243",
+        "name": "Aviso diario 12:00",
+        "nodeIds": [
+          "b96fefe5-8b47-442e-bf8d-d82bcf8fd8ba",
+          "1b4f3b67-a77a-41ef-be6e-891062547f37",
+          "3f1f6c0a-2873-4464-8a4f-72db65e928f7",
+          "da682100-f3f1-42de-8641-428ad21ea646",
+          "8d29cae3-329e-44a0-ac39-683c438bfb97"
+        ],
+        "description": "Todos los dias 12:00: manda el aviso del dia (uno por dia)."
+      },
+      {
+        "id": "c902d39e-c848-4782-8a56-433e9b8a541e",
+        "name": "Recordatorio 14:00",
+        "nodeIds": [
+          "efffcb9b-71b5-4e75-a75c-733acfae27ec",
+          "df67d828-8de7-45c7-bb61-206c14f04755",
+          "06033903-fffc-4cc5-a4b5-8740a79e0079",
+          "f0e24094-0b94-4ba7-af5c-f82b59a6e0db",
+          "f76e55d9-e528-4b25-a796-a72d7e17f7b2"
+        ],
+        "description": "A las 14:00 (2 h despues del aviso): recordatorio con boton si no confirmaste. Se borra al confirmar."
+      },
+      {
+        "id": "f294957c-515f-4069-803d-77b79574b885",
+        "name": "Limpieza 11:55",
+        "nodeIds": [
+          "53506969-7063-48b3-a0d3-671b316b2da3",
+          "aa5dc5a8-297f-42bc-96a3-c4889f721dc2",
+          "576dc50a-440e-4027-9289-351c96ea74ce",
+          "48ba40c9-38ee-4f76-ae19-d67f0a61f468",
+          "8b476df6-f721-43b3-9f8a-4f0d3bee4627",
+          "5503d35b-1909-4c1c-8607-11719541b84b",
+          "36690c52-001c-42c5-b4de-c0b98591fc44"
+        ],
+        "description": "Todos los dias 11:55: borra el aviso y el recordatorio de los dias anteriores, antes del aviso nuevo."
+      },
+      {
+        "id": "6405a6b9-2767-481b-bc8d-b891674c4493",
+        "name": "Seguimiento CSV",
+        "nodeIds": [
+          "63aa7a96-c7f6-4ff1-a184-b228d3a44f4a",
+          "53e5902a-6a4f-4aa5-9886-251d0a75732a",
+          "aab7f0ca-e5bb-457a-b526-afd881e23a4e",
+          "45683106-45e4-4abb-9251-112df11b866f",
+          "ad6d6a3b-fc07-4771-9cb4-e2835a3f7ed5"
+        ],
+        "description": "Genera el CSV todos los dias 23:55 y lo entrega por el link."
+      },
+      {
+        "id": "44d172be-ea24-4534-b20d-bfb24b5baeaa",
+        "name": "Confirmacion (boton)",
+        "nodeIds": [
+          "e17fed4e-27f6-4f35-8998-aaa143a5f0c6",
+          "79031774-7f33-4a23-9a0b-898663301ef7",
+          "60374e2b-01a8-4a90-bd55-f40100696be3",
+          "48e3562e-5578-4c8e-a9b8-2d1029ec0554",
+          "b9ec83e4-302f-4012-b1dd-071405253864",
+          "eb5e71bc-5dff-4cb8-a253-c4cef486c83d",
+          "0b85ba5a-4097-459b-83e1-47f24d76777d",
+          "b18701f0-5ec8-45b8-834e-4283f618e5a8",
+          "938fb626-ecb6-457d-a9b9-306aca99fa2d",
+          "2661ba18-fab6-4767-94db-3838a71c3099",
+          "f0f15633-f355-4b17-8f00-6112fedd4c24",
+          "fb18fc5a-ce34-4307-b40a-15ed788e67be",
+          "76663d6a-1293-43fa-aea0-0e99466d70c5"
+        ],
+        "description": "Cuando tocas el boton: registra la toma, edita el aviso a confirmado y borra el recordatorio."
+      }
+    ],
+    "pinData": {},
+    "versionId": "7b19d020-b27b-4749-b868-50966a0645c4",
+    "activeVersionId": "7b19d020-b27b-4749-b868-50966a0645c4",
+    "versionCounter": 18,
+    "triggerCount": 6,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-10-17T15:56:32.663Z",
+        "createdAt": "2026-10-17T15:56:32.663Z",
+        "role": "workflow:owner",
+        "workflowId": "X5It9YPSIVFQVzOD",
+        "projectId": "WdHzGMuZRrdypSOK",
+        "project": {
+          "updatedAt": "2026-03-22T03:07:06.426Z",
+          "createdAt": "2026-03-07T04:26:41.748Z",
+          "id": "WdHzGMuZRrdypSOK",
+          "name": "Patricio Romero <patriciooscarr0@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "0b734f09-0fae-4211-8749-c806b3186296"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": "Added Se borro el recordatorio?, Marcar recordatorio borrado; updated Marcar co…",
+      "description": "Added nodes: Se borro el recordatorio?, Marcar recordatorio borrado\nUpdated nodes: Marcar como confirmado\nConnections: 2 added, 0 removed"
+    }
+  }
+]
